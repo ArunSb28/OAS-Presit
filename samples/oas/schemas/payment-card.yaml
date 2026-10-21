@@ -1,0 +1,12 @@
+components:
+  schemas:
+    CardPayment:
+      type: object
+      required: [type, amount, card_number, cvv]
+      properties:
+        type: { type: string, enum: [card] }
+        amount: { type: number, minimum: 0.01, maximum: 100000 }
+        currency: { type: string, enum: [USD, EUR, INR] }
+        card_number: { type: string, pattern: '^[0-9]{16}$' }
+        cvv: { type: string, pattern: '^[0-9]{3,4}$' }
+        holder: { type: string, maxLength: 40 }

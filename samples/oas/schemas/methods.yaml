@@ -1,0 +1,11 @@
+components:
+  schemas:
+    PaymentRequest:
+      oneOf:
+        - $ref: './payment-card.yaml#/components/schemas/CardPayment'
+        - $ref: './payment-bank.yaml#/components/schemas/BankPayment'
+      discriminator:
+        propertyName: type
+        mapping:
+          card: './payment-card.yaml#/components/schemas/CardPayment'
+          bank: './payment-bank.yaml#/components/schemas/BankPayment'

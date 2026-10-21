@@ -1,0 +1,22 @@
+components:
+  schemas:
+    PaymentStatus:
+      type: string
+      enum: [pending, settled, failed]
+    Payment:
+      type: object
+      required: [id, status, amount]
+      properties:
+        id: { type: string }
+        status: { $ref: '#/components/schemas/PaymentStatus' }
+        amount: { type: number }
+        currency: { type: string }
+    Customer:
+      type: object
+      required: [id, name, email]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        email: { type: string, format: email }
+        age: { type: integer }
+        tier: { type: string, enum: [free, pro, enterprise] }

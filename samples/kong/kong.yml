@@ -1,0 +1,57 @@
+_format_version: "3.0"
+
+consumers:
+  - username: alice
+    keyauth_credentials: [{ key: admin-key-123 }]
+    acls: [{ group: admins }]
+  - username: bob
+    keyauth_credentials: [{ key: reader-key-456 }]
+    acls: [{ group: readers }]
+  - username: gina
+    keyauth_credentials: [{ key: guest-key-789 }]
+    acls: [{ group: guests }]
+
+services:
+  - name: payments-svc
+    url: http://payments.internal:8080
+    routes:
+      - name: payments-write
+        paths: [/v1/payments]
+        methods: [POST]
+        strip_path: false
+        plugins:
+          - name: key-auth
+            config: { key_names: [apikey] }
+          - name: acl
+            config: { allow: [admins] }
+      - name: payments-read
+        paths: [/v1/payments]
+        methods: [GET]
+        strip_path: false
+        plugins:
+          - name: key-auth
+            config: { key_names: [apikey] }
+          - name: acl
+            config: { allow: [admins, readers] }
+      - name: payments-by-id
+        paths: ["~/v1/payments/[a-z0-9_]+$"]
+        methods: [GET]
+        strip_path: false
+        plugins:
+          - name: key-auth
+          - name: acl
+            config: { allow: [admins, readers] }
+      - name: legacy-payments-v0
+        paths: [/v0/payments]
+        strip_path: true
+
+  - name: customers-svc
+    url: http://customers.internal:8080/v1/customers
+    routes:
+      - name: customers
+        paths: [/customers]
+        strip_path: true
+        plugins:
+          - name: key-auth
+          - name: acl
+            config: { deny: [guests] }
