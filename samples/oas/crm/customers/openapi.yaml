@@ -1,0 +1,42 @@
+openapi: 3.0.3
+info:
+  title: Customers API
+  version: 1.0.0
+servers:
+  - url: https://api.example.com/v1
+paths:
+  /customers:
+    get:
+      tags: [customers]
+      operationId: listCustomers
+      summary: List customers
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '../../schemas/common.yaml#/components/schemas/Customer' }
+    post:
+      tags: [customers]
+      operationId: createCustomer
+      summary: Create customer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email]
+              properties:
+                name: { type: string, minLength: 2, maxLength: 50 }
+                email: { type: string, format: email }
+                age: { type: integer, minimum: 18, maximum: 120 }
+                tier: { type: string, enum: [free, pro, enterprise] }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '../../schemas/common.yaml#/components/schemas/Customer' }

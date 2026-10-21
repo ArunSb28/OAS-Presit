@@ -1,0 +1,92 @@
+openapi: 3.0.3
+info:
+  title: Payments API
+  version: 1.0.0
+servers:
+  - url: https://api.example.com/v1
+paths:
+  /payments:
+    get:
+      tags: [payments]
+      operationId: listPayments
+      summary: List payments
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: status
+          in: query
+          schema: { $ref: '../schemas/common.yaml#/components/schemas/PaymentStatus' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '../schemas/common.yaml#/components/schemas/Payment' }
+    post:
+      tags: [payments]
+      operationId: createPayment
+      summary: Create a payment (polymorphic payment method)
+      parameters:
+        - name: X-Request-Id
+          in: header
+          required: true
+          schema: { type: string, format: uuid, example: '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '../schemas/methods.yaml#/components/schemas/PaymentRequest' }
+            examples:
+              cardPayment:
+                summary: Credit Card Payment
+                value:
+                  type: card
+                  amount: 149.99
+                  currency: USD
+                  card_number: '4111222233334444'
+                  cvv: '789'
+                  holder: Alice Smith
+              bankTransfer:
+                summary: Direct Bank Wire
+                value:
+                  type: bank
+                  amount: 4500.00
+                  currency: USD
+                  account_number: '123456789012'
+                  routing_number: '021000021'
+                  holder: Corporate Client Inc.
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '../schemas/common.yaml#/components/schemas/Payment' }
+  /payments/{paymentId}:
+    parameters:
+      - name: paymentId
+        in: path
+        required: true
+        schema: { type: string, pattern: '^pay_[a-z0-9]{8}$', example: 'pay_98765432' }
+    get:
+      tags: [payments]
+      operationId: getPayment
+      summary: Get payment by id
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '../schemas/common.yaml#/components/schemas/Payment' }
+    delete:
+      tags: [payments]
+      operationId: cancelPayment
+      summary: Cancel payment (NOT exposed in Kong -> drift)
+      responses:
+        '204': { description: Cancelled }

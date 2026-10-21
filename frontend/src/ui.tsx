@@ -32,6 +32,42 @@ export function Pill({ children, tone = 'slate', title }: { children: ReactNode;
   )
 }
 
+export function NewBadge({ children, title, tone = 'green' }: { children: ReactNode; title?: string; tone?: 'green' | 'cyan' }) {
+  const c = tone === 'green'
+    ? 'bg-emerald-500 text-white shadow-emerald-500/40'
+    : 'bg-cyan-500 text-white shadow-cyan-500/40'
+  return (
+    <span title={title} className={`shrink-0 rounded px-1.5 py-px text-[9px] font-extrabold uppercase tracking-wide shadow-sm ${c}`}>
+      {children}
+    </span>
+  )
+}
+
+export function TestStatusBadge({ status, title, compact = false }: { status: 'untested' | 'passed' | 'failed'; title?: string; compact?: boolean }) {
+  if (status === 'passed') {
+    return (
+      <span title={title ?? 'Tested: all executed cases passed'} className="inline-flex shrink-0 items-center gap-1 rounded border border-emerald-400/30 bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-300">
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+        {compact ? 'PASS' : 'PASSED'}
+      </span>
+    )
+  }
+  if (status === 'failed') {
+    return (
+      <span title={title ?? 'Tested: failures detected'} className="inline-flex shrink-0 items-center gap-1 rounded border border-rose-400/30 bg-rose-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-rose-300">
+        <span className="h-1.5 w-1.5 rounded-full bg-rose-400" />
+        {compact ? 'FAIL' : 'FAILED'}
+      </span>
+    )
+  }
+  return (
+    <span title={title ?? 'Route & API not yet tested'} className="inline-flex shrink-0 items-center gap-1 rounded border border-dashed border-amber-400/40 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-300/80">
+      <span className="h-1.5 w-1.5 rounded-full bg-amber-400/70" />
+      {compact ? 'UNTESTED' : 'UNTESTED'}
+    </span>
+  )
+}
+
 export function statusTone(code?: number): 'green' | 'amber' | 'red' | 'slate' {
   if (!code) return 'slate'
   if (code < 300) return 'green'

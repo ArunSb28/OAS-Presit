@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
-import { ChevronDown, Loader2, Play, ShieldCheck, ShieldOff } from 'lucide-react'
-import { MethodBadge, Pill } from './ui'
-import type { Endpoint, Result, TestCase } from './types'
+import { ChevronDown, ChevronRight, Folder, Loader2, Play, ShieldCheck, ShieldOff } from 'lucide-react'
+import { MethodBadge, NewBadge, Pill, TestStatusBadge } from './ui'
+import type { Endpoint, Result, TestCase, TestStatus } from './types'
 
 const GROUP_ORDER = ['Positive', 'Discriminator Variants', 'Missing Required', 'Boundary & Mutation', 'Kong Security & ACL']
 
@@ -21,25 +21,60 @@ export function Workspace({ endpoint, tests, loading, results, running, selected
 
   const done = tests.filter((t) => results[t.id]?.passed !== undefined && results[t.id]?.passed !== null)
   const pass = done.filter((t) => results[t.id].passed).length
+  const currentStatus: TestStatus = done.length > 0
+    ? (done.some((t) => results[t.id]?.passed === false) ? 'failed' : 'passed')
+    : (endpoint.test_status && endpoint.test_status !== 'untested' ? endpoint.test_status : 'untested')
   const k = endpoint.kong
 
   return (
     <div className="fade-up mx-auto max-w-5xl p-6">
-      <header className="glass rounded-2xl p-5">
+      <header className="card p-5">
+        <nav aria-label="Spec location" className="mb-3 flex flex-wrap items-center gap-1 font-mono text-[11px] text-slate-500">
+          <Folder size={12} className="text-amber-300" />
+          {endpoint.spec_file.split('/').map((seg, i, a) => (
+            <span key={i} className="flex items-center gap-1">
+              {i > 0 && <ChevronRight size={10} />}
+              <span className={i === a.length - 1 ? 'text-cyan-300' : ''}>{seg}</span>
+            </span>
+          ))}
+        </nav>
         <div className="flex flex-wrap items-center gap-3">
           <MethodBadge method={endpoint.method} />
           <h1 className="font-mono text-lg font-semibold">{endpoint.full_path}</h1>
           {endpoint.deprecated && <Pill tone="amber">deprecated</Pill>}
+          {endpoint.is_new && <NewBadge title="Added since the last baseline">NEW API</NewBadge>}
+          {(k?.new_routes?.length ?? 0) > 0 && <NewBadge tone="cyan" title={k?.new_routes?.join(', ')}>NEW ROUTE</NewBadge>}
+          <TestStatusBadge status={currentStatus} />
           <button id="run-all" className="btn btn-primary ml-auto" onClick={onRunAll} disabled={!tests.length}>
             <Play size={14} /> Run All for API
           </button>
         </div>
         <p className="mt-1 text-sm text-slate-400">{endpoint.summary} <span className="text-slate-600">· {endpoint.operation_id} · {endpoint.spec_file}</span></p>
+
+        {currentStatus === 'untested' && (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-dashed border-amber-400/40 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-200">
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
+              <span className="font-semibold uppercase tracking-wider text-amber-300">Route & API not yet tested</span>
+              <span className="text-amber-200/80">· {tests.length ? `${tests.length} test cases generated and ready for execution.` : 'Generating test cases...'}</span>
+            </div>
+            <button className="btn btn-sm border-amber-400/40 bg-amber-500/20 text-amber-200 hover:bg-amber-500/30" onClick={onRunAll} disabled={!tests.length}>
+              <Play size={12} /> Run All Tests
+            </button>
+          </div>
+        )}
+
         <div className="mt-4 grid gap-3 text-xs md:grid-cols-3">
           <Info label="Kong route">
-            {k ? <><div className="font-mono text-slate-200">{k.routes.join(', ')}</div>
-              <div className="text-slate-500">service {k.service} · public {k.public_path} · strip_path {String(k.strip_path)}</div></>
-              : <Pill tone="red">Unrouted – not exposed in Kong</Pill>}
+            {k ? (
+              <>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-slate-200">{k.routes.join(', ')}</span>
+                  <TestStatusBadge status={currentStatus} compact />
+                </div>
+                <div className="text-slate-500">service {k.service} · public {k.public_path} · strip_path {String(k.strip_path)}</div>
+              </>
+            ) : <Pill tone="red">Unrouted – not exposed in Kong</Pill>}
           </Info>
           <Info label="Active plugins">
             <div className="flex flex-wrap gap-1">{k?.plugins.length ? k.plugins.map((p) => <Pill key={p.name} tone="violet">{p.name}</Pill>) : <span className="text-slate-500">none</span>}</div>
@@ -58,6 +93,7 @@ export function Workspace({ endpoint, tests, loading, results, running, selected
               <div className="h-full bg-gradient-to-r from-emerald-400 to-cyan-400 transition-all" style={{ width: `${(pass / tests.length) * 100}%` }} />
             </div>
             <span className="text-slate-300">{pass}/{done.length} passed · {tests.length} total</span>
+            <TestStatusBadge status={currentStatus} compact />
           </div>
         )}
       </header>
@@ -73,7 +109,7 @@ export function Workspace({ endpoint, tests, loading, results, running, selected
           const gp = items.filter((t) => results[t.id]?.passed === true).length
           const gf = items.filter((t) => results[t.id]?.passed === false).length
           return (
-            <section key={g} className="glass overflow-hidden rounded-2xl">
+            <section key={g} className="card overflow-hidden">
               <button className="flex w-full items-center gap-3 px-4 py-3 text-left" onClick={() => setOpen({ ...open, [g]: !isOpen })}>
                 <ChevronDown size={16} className={`transition-transform ${isOpen ? '' : '-rotate-90'}`} />
                 <span className="text-sm font-semibold">{g}</span>

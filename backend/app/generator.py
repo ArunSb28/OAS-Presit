@@ -240,6 +240,43 @@ def _gen_number(s: Dict, integer: bool) -> Any:
     return int(v) if integer else float(v)
 
 
+def extract_schema_example(s: Any) -> Tuple[bool, Any]:
+    if not isinstance(s, dict):
+        return False, None
+    if "example" in s and s["example"] is not None:
+        return True, copy.deepcopy(s["example"])
+    exs = s.get("examples")
+    if isinstance(exs, list) and len(exs) > 0 and exs[0] is not None:
+        return True, copy.deepcopy(exs[0])
+    if isinstance(exs, dict) and exs:
+        first = next(iter(exs.values()))
+        if isinstance(first, dict) and "value" in first:
+            return True, copy.deepcopy(first["value"])
+        if first is not None:
+            return True, copy.deepcopy(first)
+    return False, None
+
+
+def extract_param_example(p: Dict) -> Tuple[bool, Any]:
+    if not isinstance(p, dict):
+        return False, None
+    if "example" in p and p["example"] is not None:
+        return True, copy.deepcopy(p["example"])
+    exs = p.get("examples")
+    if isinstance(exs, dict) and exs:
+        first = next(iter(exs.values()))
+        if isinstance(first, dict) and "value" in first:
+            return True, copy.deepcopy(first["value"])
+        if first is not None:
+            return True, copy.deepcopy(first)
+    if isinstance(exs, list) and len(exs) > 0 and exs[0] is not None:
+        return True, copy.deepcopy(exs[0])
+    schema = p.get("schema")
+    if isinstance(schema, dict):
+        return extract_schema_example(schema)
+    return False, None
+
+
 def gen_value(schema: Any, mode: str, lock: Optional[str] = None, depth: int = 0, _top: bool = True) -> Any:
     """mode: 'min' (required only) | 'max' (everything). Returns None for unresolvable."""
     if not isinstance(schema, dict) or "x-circular" in schema or "x-unresolved" in schema or depth > MAX_DEPTH:
@@ -249,10 +286,31 @@ def gen_value(schema: Any, mode: str, lock: Optional[str] = None, depth: int = 0
         return s["const"]
     if s.get("enum"):
         return s["enum"][0]
+
+    has_ex, ex_val = extract_schema_example(s)
     t = _type(s)
+
     if t == "object":
         props = s.get("properties") or {}
         req = set(s.get("required") or [])
+        if has_ex and isinstance(ex_val, dict):
+            obj = dict(ex_val)
+            if mode == "max":
+                for name, ps in props.items():
+                    if name not in obj and isinstance(ps, dict) and not ps.get("readOnly"):
+                        v = gen_value(ps, mode, depth=depth + 1)
+                        if v is not None or ps.get("nullable"):
+                            obj[name] = v
+            for name in req:
+                if name not in obj:
+                    ps = props.get(name) or {}
+                    v = gen_value(ps, mode, depth=depth + 1)
+                    if v is not None:
+                        obj[name] = v
+            if lockinfo:
+                obj[lockinfo[0]] = lockinfo[1]
+            return obj
+
         obj: Dict[str, Any] = {}
         for name, ps in props.items():
             if isinstance(ps, dict) and ps.get("readOnly"):
@@ -264,7 +322,10 @@ def gen_value(schema: Any, mode: str, lock: Optional[str] = None, depth: int = 0
         if lockinfo:
             obj[lockinfo[0]] = lockinfo[1]
         return obj
+
     if t == "array":
+        if has_ex and isinstance(ex_val, list):
+            return ex_val
         item = gen_value(s.get("items") or {}, mode, depth=depth + 1)
         n = s.get("minItems", 0) or 0
         if mode == "max":
@@ -272,9 +333,14 @@ def gen_value(schema: Any, mode: str, lock: Optional[str] = None, depth: int = 0
         if s.get("maxItems") is not None:
             n = min(n, s["maxItems"])
         return [item] * n if item is not None else []
-    for key in ("example", "default"):
-        if key in s and s[key] is not None and t not in ("object", "array"):
-            return s[key]
+
+    if has_ex and ex_val is not None:
+        return ex_val
+
+    if "default" in s and s["default"] is not None:
+        return s["default"]
+
+    # Fallback: auto-generate data according to schema rules
     if t == "integer":
         return _gen_number(s, True)
     if t == "number":
@@ -390,6 +456,70 @@ _BUCKET = {"path": "path_params", "query": "query", "header": "headers"}
 _SKIP_HEADERS = {"content-type", "accept", "authorization"}
 
 
+def extract_body_examples(rb: Optional[Dict]) -> List[Dict[str, Any]]:
+    """Return list of {"name": str, "description": str, "value": Any, "content_type": str}."""
+    if not rb or not isinstance(rb, dict):
+        return []
+    content = rb.get("content") or {}
+    if not isinstance(content, dict):
+        return []
+    out: List[Dict[str, Any]] = []
+    for ct, media in content.items():
+        if not isinstance(media, dict):
+            continue
+        # 1. media-level named examples
+        exs = media.get("examples")
+        if isinstance(exs, dict):
+            for k, ex_obj in exs.items():
+                if isinstance(ex_obj, dict):
+                    val = ex_obj.get("value") if "value" in ex_obj else ex_obj
+                    desc = ex_obj.get("description") or ex_obj.get("summary") or f"OpenAPI example '{k}'"
+                    name = ex_obj.get("summary") or k
+                else:
+                    val = ex_obj
+                    desc = f"OpenAPI example '{k}'"
+                    name = k
+                out.append({"name": str(name), "description": str(desc), "value": copy.deepcopy(val), "content_type": ct})
+        # 2. media-level single example
+        if "example" in media and media["example"] is not None:
+            if not any(o["value"] == media["example"] for o in out):
+                out.append({
+                    "name": "Specified Example",
+                    "description": "Defined in requestBody example.",
+                    "value": copy.deepcopy(media["example"]),
+                    "content_type": ct,
+                })
+        # 3. schema-level examples
+        schema = media.get("schema")
+        if isinstance(schema, dict):
+            if "example" in schema and schema["example"] is not None:
+                if not any(o["value"] == schema["example"] for o in out):
+                    out.append({
+                        "name": "Schema Example",
+                        "description": "Defined in requestBody schema example.",
+                        "value": copy.deepcopy(schema["example"]),
+                        "content_type": ct,
+                    })
+            schema_exs = schema.get("examples")
+            if isinstance(schema_exs, list):
+                for i, ex_val in enumerate(schema_exs):
+                    if not any(o["value"] == ex_val for o in out):
+                        out.append({
+                            "name": f"Schema Example {i + 1}",
+                            "description": f"Defined in requestBody schema examples [{i}].",
+                            "value": copy.deepcopy(ex_val),
+                            "content_type": ct,
+                        })
+            elif isinstance(schema_exs, dict):
+                for k, ex_obj in schema_exs.items():
+                    val = ex_obj.get("value") if isinstance(ex_obj, dict) and "value" in ex_obj else ex_obj
+                    if not any(o["value"] == val for o in out):
+                        desc = (ex_obj.get("description") or ex_obj.get("summary")) if isinstance(ex_obj, dict) else f"Schema example '{k}'"
+                        name = (ex_obj.get("summary") or k) if isinstance(ex_obj, dict) else k
+                        out.append({"name": str(name), "description": str(desc), "value": copy.deepcopy(val), "content_type": ct})
+    return out
+
+
 def body_schema(rb: Optional[Dict]) -> Tuple[Optional[str], Optional[Dict]]:
     if not rb:
         return None, None
@@ -407,7 +537,8 @@ def build_request(op: Dict, mode: str, lock: Optional[str] = None) -> Dict[str, 
         if p["in"] == "header" and p["name"].lower() in _SKIP_HEADERS:
             continue
         if p["in"] == "path" or p.get("required") or mode == "max":
-            v = gen_value(p.get("schema") or {}, mode)
+            has_ex, ex_val = extract_param_example(p)
+            v = ex_val if (has_ex and ex_val is not None) else gen_value(p.get("schema") or {}, mode)
             if v is not None:
                 req[_BUCKET[p["in"]]][p["name"]] = str(v) if p["in"] != "query" else v
     ct, schema = body_schema(op.get("request_body"))
@@ -416,7 +547,13 @@ def build_request(op: Dict, mode: str, lock: Optional[str] = None) -> Dict[str, 
         flat, _ = concretize(schema, lock)
         needs = op["request_body"].get("required") or bool(flat.get("required")) or bool(find_disc(schema))
         if mode == "max" or needs:
-            req["body"] = gen_value(schema, mode, lock=lock)
+            rb = op.get("request_body") or {}
+            media = (rb.get("content") or {}).get(ct) or {}
+            has_media_ex, media_ex = extract_schema_example(media)
+            if has_media_ex and media_ex is not None and not lock:
+                req["body"] = copy.deepcopy(media_ex)
+            else:
+                req["body"] = gen_value(schema, mode, lock=lock)
     return req
 
 
@@ -461,10 +598,34 @@ def generate_tests(op: Dict, known_groups: List[str]) -> List[Dict[str, Any]]:
     ct, bschema = body_schema(op.get("request_body"))
     disc = variants(bschema) if bschema else None
 
-    # ---- Positive ----
+    # ---- Examples (from OpenAPI requestBody & parameter examples) ----
+    body_examples = extract_body_examples(op.get("request_body"))
+    for ex in body_examples:
+        r_ex = build_request(op, "max")
+        r_ex["body"] = copy.deepcopy(ex["value"])
+        r_ex["content_type"] = ex["content_type"]
+        add(G_POS, f"Example: {ex['name']}", f"Generated from OpenAPI example payload ({ex['description']}).", r_ex, ok, contract=True)
+
+    param_examples_added = 0
+    for p in op.get("parameters", []):
+        if p.get("in") == "header" and p["name"].lower() in _SKIP_HEADERS:
+            continue
+        exs = p.get("examples")
+        if isinstance(exs, dict) and len(exs) > 1 and param_examples_added < 4:
+            for ex_k, ex_v in exs.items():
+                val = ex_v.get("value") if isinstance(ex_v, dict) and "value" in ex_v else ex_v
+                if val is not None:
+                    r_pex = build_request(op, "min")
+                    r_pex[_BUCKET[p["in"]]][p["name"]] = str(val) if p["in"] != "query" else val
+                    ex_label = (ex_v.get("summary") or ex_k) if isinstance(ex_v, dict) else ex_k
+                    add(G_POS, f"Example ({p['name']}): {ex_label}",
+                        f"Generated from OpenAPI example for parameter '{p['name']}'.", r_pex, ok, contract=True)
+                    param_examples_added += 1
+
+    # ---- Positive Minimal / Maximal (using examples when present, else auto-generated data) ----
     mn, mx = build_request(op, "min"), build_request(op, "max")
-    add(G_POS, "Minimal – required fields only", "Only mandatory parameters, headers and body fields.", mn, ok, contract=True)
-    add(G_POS, "Maximal – all fields populated", "All mandatory and optional fields with valid synthetic data.", mx, ok, contract=True)
+    add(G_POS, "Minimal – required fields only", "Only mandatory parameters, headers and body fields (from examples or auto-generated).", mn, ok, contract=True)
+    add(G_POS, "Maximal – all fields populated", "All mandatory and optional fields (from examples or auto-generated synthetic data).", mx, ok, contract=True)
 
     # ---- Missing required (params/headers) ----
     for p in op["parameters"]:

@@ -1,20 +1,22 @@
 export type Kong = {
   routes: string[]; service: string | null; public_path: string; strip_path: boolean
   plugins: { name: string; config: Record<string, unknown>; scope: string }[]
-  auth: string[]; acl_allow: string[]; acl_deny: string[]
+  auth: string[]; acl_allow: string[]; acl_deny: string[]; new_routes?: string[]
 }
 export type Endpoint = {
   id: string; method: string; path: string; full_path: string; spec_file: string
   operation_id: string | null; summary: string; tags: string[]; deprecated: boolean
-  kong: Kong | null; drift: 'ok' | 'unrouted'
+  kong: Kong | null; drift: 'ok' | 'unrouted'; is_new?: boolean
+  test_status?: TestStatus
 }
 export type Drift = {
   unrouted_operations: { id: string; method: string; path: string }[]
-  orphaned_routes: { name: string; paths: string[]; methods: string[]; service: string | null }[]
+  orphaned_routes: { name: string; paths: string[]; methods: string[]; service: string | null; is_new?: boolean }[]
 }
 export type Status = {
   scanned_at: number | null; errors: string[]; operations: number; kong_routes: number
-  kong_files: string[]; unrouted: number; orphaned: number
+  kong_files: string[]; unrouted: number; orphaned: number; new_endpoints: number; new_routes: number
+  tested_endpoints?: number; untested_endpoints?: number
 }
 export type Credential = { group: string; username: string; password: string; token: string }
 export type Config = {
@@ -36,5 +38,7 @@ export type Result = {
   expected?: string[]; time_ms?: number | null; url?: string
   request_headers?: Record<string, string>; headers?: Record<string, string>
   body?: unknown; is_json?: boolean
-  contract?: { validated: boolean; valid: boolean | null; errors: { path: string; message: string }[]; note?: string } | null
+  contract?: { validated?: boolean; valid?: boolean; note?: string; errors?: { path?: string; message?: string }[] } | null
 }
+export type TestStatus = 'untested' | 'passed' | 'failed'
+export type TestStatusMap = Record<string, TestStatus>

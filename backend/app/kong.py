@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
@@ -106,30 +106,71 @@ def _prefix_match(prefix: str, path: str) -> bool:
     return len(a) <= len(b) and all(x == y or _TEMPLATE.fullmatch(y) for x, y in zip(a, b))
 
 
-def match_route(route: Dict, method: str, full_path: str) -> Optional[str]:
-    """Return the public (gateway) path that clients call, or None if no match."""
+def kong_regex(pattern: str) -> Optional[re.Pattern]:
+    """Compile a Kong (PCRE) route regex. Kong anchors at the start of the path."""
+    pattern = re.sub(r"\(\?<([A-Za-z_]\w*)>", r"(?P<\1>", pattern)  # (?<id>..) -> (?P<id>..)
+    try:
+        return re.compile(pattern)
+    except re.error:
+        return None
+
+
+def path_samples(op: Dict) -> List[str]:
+    """Concrete paths for an OAS operation, with path params filled from their own
+    schemas (pattern/enum/format) so regex routes like ~/pay/[a-z]+ can be tested."""
+    if "_samples" in op:
+        return op["_samples"]
+    from .generator import gen_value  # local import: avoid import cycle
+    path = op["full_path"]
+    schemas = {p["name"]: p.get("schema") or {} for p in op.get("parameters", []) if p.get("in") == "path"}
+    names = re.findall(r"\{([^}/]+)\}", path)
+    constrained = any(k in s for s in schemas.values() for k in ("pattern", "enum", "const", "format"))
+    out: List[str] = []
+    for fallback in ((None,) if constrained else (None, "1", "abc", "a1b2", "A1")):
+        s = path
+        for n in names:
+            v = fallback
+            if v is None:
+                try:
+                    v = gen_value(schemas.get(n, {}), "min")
+                except Exception:
+                    v = None
+                v = "1" if v is None else v
+            s = s.replace("{" + n + "}", str(v))
+        if s not in out:
+            out.append(s)
+    op["_samples"] = out
+    return out
+
+
+def match_route(route: Dict, op: Dict) -> Optional[Tuple[str, Tuple[int, int]]]:
+    """Return (public path clients call, precedence rank) or None.
+    Rank follows Kong: regex routes beat prefix routes; longer prefix beats shorter."""
+    method, full_path = op["method"], op["full_path"]
     if route["methods"] and method not in route["methods"]:
         return None
-    sample = _TEMPLATE.sub("1", full_path)
     svc = route["service_path"]
+    best: Optional[Tuple[str, Tuple[int, int]]] = None
     for rp in route["paths"]:
         if rp.startswith("~"):
-            try:
-                if re.match(rp[1:], sample):
-                    return full_path
-            except re.error:
-                pass
-            continue
-        # 1) OAS documents the public gateway path
-        if _prefix_match(rp, full_path):
-            return full_path
-        # 2) OAS documents the upstream path; Kong strips prefix / prepends service path
-        if svc and route["strip_path"] and (full_path == svc or full_path.startswith(svc + "/")):
-            return rp.rstrip("/") + full_path[len(svc):]
-        if svc and not route["strip_path"] and full_path.startswith(svc + "/") and \
+            rx = kong_regex(rp[1:])
+            if rx and any(rx.match(s) for s in path_samples(op)):
+                cand = (full_path, (1, len(rp)))
+            else:
+                cand = None
+        elif _prefix_match(rp, full_path):  # OAS documents the public gateway path
+            cand = (full_path, (0, len(_segments(rp))))
+        elif svc and route["strip_path"] and (full_path == svc or full_path.startswith(svc + "/")):
+            # OAS documents the upstream path; Kong strips the prefix and prepends the service path
+            cand = (rp.rstrip("/") + full_path[len(svc):], (0, len(_segments(rp))))
+        elif svc and not route["strip_path"] and full_path.startswith(svc + "/") and \
                 _prefix_match(rp, full_path[len(svc):]):
-            return full_path[len(svc):]
-    return None
+            cand = (full_path[len(svc):], (0, len(_segments(rp))))
+        else:
+            cand = None
+        if cand and (best is None or cand[1] > best[1]):
+            best = cand
+    return best
 
 
 def correlate(ops: List[Dict], kong: Dict) -> Dict[str, Any]:
@@ -138,13 +179,14 @@ def correlate(ops: List[Dict], kong: Dict) -> Dict[str, Any]:
     for op in ops:
         hits = []
         for r in routes:
-            pub = match_route(r, op["method"], op["full_path"])
-            if pub is not None:
-                hits.append((r, pub))
+            m = match_route(r, op)
+            if m is not None:
+                hits.append((r, m[0], m[1]))
                 matched_routes.add(r["name"])
+        hits.sort(key=lambda h: h[2], reverse=True)  # Kong precedence: most specific first
         op["kong"] = None
         if hits:
-            r, pub = hits[0]
+            r, pub, _ = hits[0]
             plugins = {p["name"]: p for p in r["plugins"]}
             op["kong"] = {
                 "routes": [h[0]["name"] for h in hits],

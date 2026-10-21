@@ -12,6 +12,7 @@ const pretty = (v: unknown) => JSON.stringify(v ?? {}, null, 2)
 export function Drawer({ tc, result, running, onRun, onClose }: {
   tc: TestCase; result?: Result; running: boolean; onRun: (tc: TestCase) => void; onClose: () => void
 }) {
+  const mt = document.documentElement.dataset.theme === 'light' ? 'light' : 'vs-dark'
   const [tab, setTab] = useState<Tab>('body')
   const [rtab, setRtab] = useState<RTab>('body')
   const [params, setParams] = useState('')
@@ -59,7 +60,7 @@ export function Drawer({ tc, result, running, onRun, onClose }: {
   const c = result?.contract
 
   return (
-    <aside id="test-drawer" className="slide-in glass fixed right-0 top-0 z-30 flex h-full w-full max-w-[640px] flex-col bg-ink-900/95 shadow-2xl">
+    <aside id="test-drawer" className="slide-in fixed right-0 top-0 z-30 flex h-full w-full max-w-[660px] flex-col border-l border-[var(--line)] bg-ink-900 shadow-[-24px_0_60px_-24px_rgba(0,0,0,.6)]">
       <header className="flex items-start justify-between gap-3 border-b border-white/10 p-4">
         <div className="min-w-0">
           <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">{tc.group}{tc.subgroup ? ` · ${tc.subgroup}` : ''}</div>
@@ -85,7 +86,7 @@ export function Drawer({ tc, result, running, onRun, onClose }: {
           {err && <span className="ml-auto text-xs text-rose-400">{err}</span>}
         </div>
         <div className="mx-4 mt-2 h-56 overflow-hidden rounded-xl border border-white/10">
-          <Editor height="100%" language="json" theme="vs-dark" value={value} onChange={(v) => setValue(v ?? '')}
+          <Editor height="100%" language="json" theme={mt} value={value} onChange={(v) => setValue(v ?? '')}
             options={{ minimap: { enabled: false }, fontSize: 12, scrollBeyondLastLine: false, tabSize: 2, automaticLayout: true }} />
         </div>
 
@@ -110,7 +111,7 @@ export function Drawer({ tc, result, running, onRun, onClose }: {
             </div>
             <div className="mt-2 min-h-0 flex-1 overflow-auto rounded-xl border border-white/10 bg-black/30">
               {rtab === 'body' && (
-                <Editor height="100%" language={result.is_json ? 'json' : 'plaintext'} theme="vs-dark"
+                <Editor height="100%" language={result.is_json ? 'json' : 'plaintext'} theme={mt}
                   value={typeof result.body === 'string' ? result.body : pretty(result.body)}
                   options={{ readOnly: true, minimap: { enabled: false }, fontSize: 12, automaticLayout: true, scrollBeyondLastLine: false }} />
               )}
@@ -120,7 +121,7 @@ export function Drawer({ tc, result, running, onRun, onClose }: {
                 <div className="space-y-2 p-3 text-xs">
                   {!c?.validated && <p className="text-slate-400">{c?.note ?? 'Contract validation not applied to this case.'}</p>}
                   {c?.validated && c.valid && <p className="text-emerald-300">Response conforms to the OAS schema.</p>}
-                  {c?.errors.map((e, i) => (
+                  {c?.errors?.map((e: { path?: string; message?: string }, i: number) => (
                     <div key={i} className="rounded-lg border border-rose-400/30 bg-rose-500/10 p-2">
                       <code className="text-rose-300">{e.path}</code><div className="text-slate-300">{e.message}</div>
                     </div>

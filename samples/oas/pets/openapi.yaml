@@ -1,0 +1,52 @@
+openapi: 3.0.3
+info:
+  title: Pets API (discriminator, implicit mapping)
+  version: 1.0.0
+servers:
+  - url: https://api.example.com/v1
+paths:
+  /pets:
+    post:
+      tags: [pets]
+      operationId: createPet
+      summary: Create a pet - oneOf + discriminator WITHOUT an explicit mapping
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Pet' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id]
+                properties:
+                  id: { type: string }
+components:
+  schemas:
+    # No `mapping`: the discriminator values are the schema names (Cat, Dog).
+    Pet:
+      oneOf:
+        - $ref: '#/components/schemas/Cat'
+        - $ref: '#/components/schemas/Dog'
+      discriminator:
+        propertyName: petType
+    Cat:
+      type: object
+      required: [petType, name, indoor]
+      properties:
+        petType: { type: string }
+        name: { type: string, minLength: 1, maxLength: 30 }
+        indoor: { type: boolean }
+        lives: { type: integer, minimum: 1, maximum: 9 }
+    Dog:
+      type: object
+      required: [petType, name, breed]
+      properties:
+        petType: { type: string }
+        name: { type: string, minLength: 1, maxLength: 30 }
+        breed: { type: string, enum: [labrador, poodle, beagle] }
+        weightKg: { type: number, minimum: 0.5, maximum: 90 }

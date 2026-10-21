@@ -1,0 +1,14 @@
+openapi: 3.0.3
+info:
+  title: Reports API
+  version: 1.0.0
+servers:
+  - url: https://api.example.com/v1
+paths:
+  /reports/summary:
+    get:
+      tags: [reports]
+      operationId: reportSummary
+      summary: Summary report (NOT exposed in Kong -> drift)
+      responses:
+        '200': { description: OK }

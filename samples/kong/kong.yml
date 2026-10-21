@@ -55,3 +55,23 @@ services:
           - name: key-auth
           - name: acl
             config: { deny: [guests] }
+
+  - name: fleet-svc
+    url: http://fleet.internal:8080
+    routes:
+      - name: pets-write
+        paths: [/v1/pets]
+        methods: [POST]
+        strip_path: false
+        plugins:
+          - name: key-auth
+          - name: acl
+            config: { allow: [admins] }
+      - name: vehicles-write
+        paths: [/v1/vehicles]
+        methods: [POST]
+        strip_path: false
+        plugins:
+          - name: key-auth
+          - name: acl
+            config: { allow: [admins] }
